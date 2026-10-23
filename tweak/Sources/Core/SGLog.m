@@ -89,7 +89,9 @@ static void appendLog(NSString *message) {
     }
 }
 
-static _Atomic uint64_t sg_seq = 0;
+// The __atomic builtins carry the atomicity themselves; a _Atomic-qualified pointer to
+// them is a hard error in Xcode 26.6's clang.
+static uint64_t sg_seq = 0;
 static NSMutableArray<NSDictionary *> *sg_recent = nil;
 static const NSUInteger kRecentKept = 500;
 
@@ -99,7 +101,7 @@ void SGLogMessage(NSString *message) {
     NSTimeInterval at = NSDate.date.timeIntervalSince1970;
     os_log_with_type(OS_LOG_DEFAULT, OS_LOG_TYPE_DEFAULT, "[spotifyglass] %{public}s", text.UTF8String);
     dispatch_async(logQueue(), ^{
-        @synchronized (SGLogMessage) {
+        @synchronized (logQueue()) {
             if (!sg_recent) sg_recent = [NSMutableArray array];
             [sg_recent addObject:@{@"seq": @(seq), @"text": text, @"at": @(at)}];
             if (sg_recent.count > kRecentKept) [sg_recent removeObjectsInRange:NSMakeRange(0, sg_recent.count - kRecentKept)];
@@ -117,7 +119,7 @@ NSArray<NSDictionary *> *SGLogRecent(uint64_t since) {
     // Copy under lock on the log queue to avoid racing appends; never blocks main for long
     // (bounded copy of at most kRecentKept small dictionaries).
     dispatch_block_t copy = ^{
-        @synchronized (SGLogMessage) {
+        @synchronized (logQueue()) {
             if (!sg_recent) out = @[];
             else {
                 NSMutableArray *kept = [NSMutableArray array];
